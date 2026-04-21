@@ -1,4 +1,4 @@
-//
+﻿//
 // Copyright (C) 2004-2006 Maciej Sobczak, Stephen Hutton, David Courtney
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE_1_0.txt or copy at
@@ -17,6 +17,7 @@
 #endif
 
 #include <vector>
+#include <map>
 #include <soci/soci-backend.h>
 #include <sstream>
 #if defined(_MSC_VER) || defined(__MINGW32__)
@@ -105,7 +106,7 @@ struct odbc_standard_into_type_backend : details::standard_into_type_backend,
     details::exchange_type type_;
     int position_;
     SQLSMALLINT odbcType_;
-    SQLLEN valueLen_;
+    SQLLEN valueLen_;   // the field value len.
 private:
     SOCI_NOT_COPYABLE(odbc_standard_into_type_backend)
 };
@@ -278,7 +279,8 @@ struct odbc_statement_backend : details::statement_backend
     // This vector, containing non-owning non-null pointers, can be empty if
     // we're not using any vector "intos".
     std::vector<odbc_vector_into_type_backend*> intos_;
-
+    // <pointer,dataLength>
+    std::map<void*,size_t> puts_;
 private:
     // fetch() helper wrapping SQLFetch() call for the given range of rows.
     exec_fetch_result do_fetch(int beginRow, int endRow);
@@ -293,6 +295,13 @@ struct odbc_rowid_backend : details::rowid_backend
 
 struct odbc_blob_backend : details::blob_backend
 {
+    enum mode
+    {
+        Empty,
+        Read,
+        Write
+    };
+
     odbc_blob_backend(odbc_session_backend &session);
 
     ~odbc_blob_backend() SOCI_OVERRIDE;
@@ -305,7 +314,13 @@ struct odbc_blob_backend : details::blob_backend
     std::size_t append(char const *buf, std::size_t toWrite) SOCI_OVERRIDE;
     void trim(std::size_t newLen) SOCI_OVERRIDE;
 
-    odbc_session_backend &session_;
+    void bind(odbc_statement_backend*,int column, mode mode);
+
+    odbc_session_backend& session_;
+    odbc_statement_backend* stmt_;
+    mode mode_ = Empty;
+    int column_;
+    std::vector<uint8_t> buffer_;
 };
 
 struct odbc_session_backend : details::session_backend

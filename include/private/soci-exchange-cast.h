@@ -82,6 +82,13 @@ struct exchange_type_traits<x_xmltype>
   typedef xml_type value_type;
 };
 
+template <>
+struct exchange_type_traits<x_binary>
+{
+    typedef binary value_type;
+};
+
+
 // exchange_type_traits not defined for x_statement, x_rowid and x_blob here.
 
 template <exchange_type e>

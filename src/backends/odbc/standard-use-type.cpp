@@ -127,7 +127,23 @@ void* odbc_standard_use_type_backend::prepare_for_bind(
         copy_from_string(exchange_type_cast<x_xmltype>(data_).value,
                          size, sqlType, cType);
         break;
-
+    case x_binary:
+    {
+        const auto& b = exchange_type_cast<x_binary>(data_);
+        size = b.size();
+        // SQL_VARBINARY must has at least one byte data, cannot be NULL!
+        // the max size of SQL_VARBINARY is 510. will got error if it's larger than 510.
+        // but SQL_LONGVARBINARY can be NULL, and no size limit.
+        sqlType = size >= 500 ? SQL_LONGVARBINARY : SQL_VARBINARY;
+        if(size < 1) sqlType = SQL_LONGVARBINARY;
+        cType = SQL_C_BINARY;
+        buf_ = nullptr;
+        data_ = (void*)b.data();
+        // buf_ = new char[size];
+        // memcpy(buf_, b.data(), size);
+        indHolder_ = size;
+    }
+    break;
     // unsupported types
     default:
         throw soci_error("Use element used with non-supported type.");
@@ -225,6 +241,13 @@ void odbc_standard_use_type_backend::pre_use(indicator const *ind)
     // So use separate holder variables depending on whether we need to insert
     // null or not.
     static const SQLLEN indHolderNull = SQL_NULL_DATA;
+
+    // provide binary data when execute
+    if(cType == SQL_C_BINARY && (!ind || *ind != i_null) && size > 0)
+    {
+        statement_.puts_[sqlData] = size;
+        indHolder_ = SQL_LEN_DATA_AT_EXEC(indHolder_);
+    }
 
     SQLRETURN rc = SQLBindParameter(statement_.hstmt_,
                                     static_cast<SQLUSMALLINT>(position_),

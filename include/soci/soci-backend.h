@@ -12,9 +12,9 @@
 #include "soci/error.h"
 // std
 #include <cstddef>
-#include <map>
 #include <string>
 #include <sstream>
+#include <iostream>
 
 namespace soci
 {
@@ -23,7 +23,7 @@ namespace soci
 enum data_type
 {
     dt_string, dt_date, dt_double, dt_integer, dt_long_long, dt_unsigned_long_long,
-    dt_blob, dt_xml
+    dt_blob, dt_xml ,dt_binary
 };
 
 // the enum type for indicator variables
@@ -51,7 +51,8 @@ enum exchange_type
     x_blob,
 
     x_xmltype,
-    x_longstring
+    x_longstring,
+    x_binary    // for odbc ole object field
 };
 
 // type of statement (used for optimizing statement preparation)
@@ -384,6 +385,10 @@ public:
 
         case dt_xml:
             res += "xml";
+            break;
+
+        case dt_binary:
+            res += "binary";
             break;
 
         default:

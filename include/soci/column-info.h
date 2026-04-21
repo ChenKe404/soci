@@ -107,6 +107,11 @@ struct type_conversion<column_info>
         {
             ci.type = dt_xml;
         }
+        else if (type_name.find("binary") != std::string::npos ||
+                 type_name.find("BINARY") != std::string::npos)
+        {
+            ci.type = dt_binary;
+        }
         else
         {
             // this seems to be a safe default

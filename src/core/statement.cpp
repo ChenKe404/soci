@@ -431,7 +431,6 @@ bool statement_impl::fetch()
                 gotData = false;
             }
         }
-
         post_fetch(gotData, true);
         session_.set_got_data(gotData);
         return gotData;
@@ -663,6 +662,13 @@ void statement_impl::bind_into<dt_date>()
     into_row<std::tm>();
 }
 
+template<>
+void statement_impl::bind_into<dt_binary>()
+{
+    into_row<binary>();
+}
+
+
 void statement_impl::describe()
 {
     row_->clean_up();
@@ -704,6 +710,9 @@ void statement_impl::describe()
             break;
         case dt_date:
             bind_into<dt_date>();
+            break;
+        case dt_binary:
+            bind_into<dt_binary>();
             break;
         default:
             std::ostringstream msg;

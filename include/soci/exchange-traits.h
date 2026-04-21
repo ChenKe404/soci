@@ -148,6 +148,13 @@ struct exchange_traits<long_string>
     enum { x_type = x_longstring };
 };
 
+template <>
+struct exchange_traits<binary>
+{
+    typedef basic_type_tag type_family;
+    enum { x_type = x_binary };
+};
+
 } // namespace details
 
 } // namespace soci

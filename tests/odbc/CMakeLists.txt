@@ -17,6 +17,12 @@ if (WIN32)
     DEPENDS ODBC
     SOURCE test-odbc-access.cpp ${SOCI_TESTS_COMMON}
     CONNSTR "test-access.dsn")
+
+  soci_backend_test(
+    NAME access-binary
+    BACKEND ODBC
+    SOURCE test-odbc-access-binary.cpp
+    CONNSTR "test-access.dsn")
 else()
     message(STATUS "MS Access test disabled on non-Windows platform")
 endif()

@@ -8,6 +8,10 @@
 #ifndef SOCI_TYPE_WRAPPERS_H_INCLUDED
 #define SOCI_TYPE_WRAPPERS_H_INCLUDED
 
+#include <cstdint>
+#include <string>
+#include <vector>
+
 namespace soci
 {
 
@@ -26,6 +30,18 @@ struct xml_type
 struct long_string
 {
     std::string value;
+};
+
+struct binary : public std::vector<uint8_t>
+{
+    using super = std::vector<uint8_t>;
+
+    inline binary(const std::initializer_list<uint8_t>& list) : super(list)
+    {}
+
+    template<typename ..._Args>
+    inline binary(_Args&&... args)  : super(std::forward<_Args>(args)...)
+    {}
 };
 
 } // namespace soci

@@ -1,10 +1,11 @@
-//
+﻿//
 // Copyright (C) 2004-2006 Maciej Sobczak, Stephen Hutton, David Courtney
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE_1_0.txt or copy at
 // http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#define NOMINMAX
 #define SOCI_ODBC_SOURCE
 #include "soci/soci-platform.h"
 #include "soci/odbc/soci-odbc.h"
@@ -13,6 +14,7 @@
 #include "soci-exchange-cast.h"
 #include "soci-mktime.h"
 #include <ctime>
+#include <algorithm>
 
 using namespace soci;
 using namespace soci::details;
@@ -60,29 +62,29 @@ void odbc_standard_into_type_backend::define_by_pos(
     case x_long_long:
         if (use_string_for_bigint())
         {
-          odbcType_ = SQL_C_CHAR;
-          size = max_bigint_length;
-          buf_ = new char[size];
-          data = buf_;
+            odbcType_ = SQL_C_CHAR;
+            size = max_bigint_length;
+            buf_ = new char[size];
+            data = buf_;
         }
         else // Normal case, use ODBC support.
         {
-          odbcType_ = SQL_C_SBIGINT;
-          size = sizeof(long long);
+            odbcType_ = SQL_C_SBIGINT;
+            size = sizeof(long long);
         }
         break;
     case x_unsigned_long_long:
         if (use_string_for_bigint())
         {
-          odbcType_ = SQL_C_CHAR;
-          size = max_bigint_length;
-          buf_ = new char[size];
-          data = buf_;
+            odbcType_ = SQL_C_CHAR;
+            size = max_bigint_length;
+            buf_ = new char[size];
+            data = buf_;
         }
         else // Normal case, use ODBC support.
         {
-          odbcType_ = SQL_C_UBIGINT;
-          size = sizeof(unsigned long long);
+            odbcType_ = SQL_C_UBIGINT;
+            size = sizeof(unsigned long long);
         }
         break;
     case x_double:
@@ -99,19 +101,28 @@ void odbc_standard_into_type_backend::define_by_pos(
         odbcType_ = SQL_C_ULONG;
         size = sizeof(unsigned long);
         break;
+    case x_binary:
+        odbcType_ = SQL_C_BINARY;
+        // use "SQLGetData" to read binary data, so the "buf_" is unuseful.
+        size = 1;
+        buf_ = new char[size];
+        data = buf_;
+        break;
     default:
         throw soci_error("Into element used with non-supported type.");
     }
 
     valueLen_ = 0;
-
-    SQLRETURN rc = SQLBindCol(statement_.hstmt_, static_cast<SQLUSMALLINT>(position_),
-        static_cast<SQLUSMALLINT>(odbcType_), data, size, &valueLen_);
-    if (is_odbc_error(rc))
+    if(type_ != x_binary)
     {
-        std::ostringstream ss;
-        ss << "binding output column #" << position_;
-        throw odbc_soci_error(SQL_HANDLE_STMT, statement_.hstmt_, ss.str());
+        SQLRETURN rc = SQLBindCol(statement_.hstmt_, static_cast<SQLUSMALLINT>(position_),
+                                  static_cast<SQLUSMALLINT>(odbcType_), data, size, &valueLen_);
+        if (is_odbc_error(rc))
+        {
+            std::ostringstream ss;
+            ss << "binding output column #" << position_;
+            throw odbc_soci_error(SQL_HANDLE_STMT, statement_.hstmt_, ss.str());
+        }
     }
 }
 
@@ -193,19 +204,63 @@ void odbc_standard_into_type_backend::post_fetch(
         }
         else if (type_ == x_long_long && use_string_for_bigint())
         {
-          long long& ll = exchange_type_cast<x_long_long>(data_);
-          if (!cstring_to_integer(ll, buf_))
-          {
-            throw soci_error("Failed to parse the returned 64-bit integer value");
-          }
+            long long& ll = exchange_type_cast<x_long_long>(data_);
+            if (!cstring_to_integer(ll, buf_))
+            {
+                throw soci_error("Failed to parse the returned 64-bit integer value");
+            }
         }
         else if (type_ == x_unsigned_long_long && use_string_for_bigint())
         {
-          unsigned long long& ll = exchange_type_cast<x_unsigned_long_long>(data_);
-          if (!cstring_to_unsigned(ll, buf_))
-          {
-            throw soci_error("Failed to parse the returned 64-bit integer value");
-          }
+            unsigned long long& ll = exchange_type_cast<x_unsigned_long_long>(data_);
+            if (!cstring_to_unsigned(ll, buf_))
+            {
+                throw soci_error("Failed to parse the returned 64-bit integer value");
+            }
+        }
+        else if(type_ == x_binary)
+        {
+            auto& b = exchange_type_cast<x_binary>(data_);
+            auto hstmt = statement_.hstmt_;
+            const auto pos = static_cast<SQLUSMALLINT>(position_);
+            const auto type = static_cast<SQLUSMALLINT>(odbcType_);
+            // get data length
+            char c;
+            SQLLEN valueLen = valueLen_;
+            SQLRETURN rc = SQLGetData(hstmt,pos, type, &c, 0, &valueLen);
+            if (is_odbc_error(rc))
+            {
+                std::ostringstream ss;
+                ss << "get data length from #" << position_;
+                throw odbc_soci_error(SQL_HANDLE_STMT, hstmt, ss.str());
+            }
+            if(valueLen <= 0)
+                return;
+
+            if((unsigned long long)valueLen >= odbc_max_buffer_length)
+                throw soci_error("binary size overflow; maybe got too large binary data");
+
+            // get data
+            b.resize(valueLen);
+            SQLLEN remain = valueLen;
+            SQLLEN offset = 0;
+            SQLLEN len = 512;
+            SQLLEN bytes;
+            do {
+                len = std::min(len,remain);
+                rc = SQLGetData(hstmt, pos, type, b.data() + offset, len, &bytes);
+                if(is_odbc_error(rc))
+                    break;
+                remain -= len;
+                offset += len;
+            } while (remain > 0 || rc == SQL_SUCCESS_WITH_INFO || bytes == SQL_NO_TOTAL);
+
+            if (is_odbc_error(rc))
+            {
+                std::ostringstream ss;
+                ss << "get binary data from #" << position_ << " (read: " << offset << " remain: " << remain <<")";
+                throw odbc_soci_error(SQL_HANDLE_STMT, hstmt, ss.str());
+            }
         }
     }
 }

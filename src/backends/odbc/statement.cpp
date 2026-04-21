@@ -5,11 +5,13 @@
 // http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#define NOMINMAX
 #define SOCI_ODBC_SOURCE
 #include "soci/odbc/soci-odbc.h"
 #include <cctype>
 #include <sstream>
 #include <cstring>
+#include <algorithm>
 
 using namespace soci;
 using namespace soci::details;
@@ -152,6 +154,27 @@ odbc_statement_backend::execute(int number)
     SQLCloseCursor(hstmt_);
 
     SQLRETURN rc = SQLExecute(hstmt_);
+    if (rc == SQL_NEED_DATA)
+    {
+        SQLPOINTER pointer;
+        while ((rc = SQLParamData(hstmt_, &pointer)) == SQL_NEED_DATA)
+        {
+            const auto total = puts_[pointer];
+            if(total < 1) continue;
+            SQLLEN remain = total;
+            SQLLEN offset = 0;
+            SQLLEN len = 8096;
+            do{
+                len = std::min(len,remain);
+                rc = SQLPutData(hstmt_, (char*)pointer + offset, len);
+                if (is_odbc_error(rc))
+                    break;
+                remain -= len;
+                offset += len;
+            } while(remain > 0);
+        }
+    }
+
     if (is_odbc_error(rc))
     {
         // Construct the error object immediately, before calling any other
@@ -263,7 +286,6 @@ odbc_statement_backend::fetch(int number)
         SQLSetStmtAttr(hstmt_, SQL_ATTR_ROW_ARRAY_SIZE, (SQLPOINTER)row_array_size, 0);
 
         SQLSetStmtAttr(hstmt_, SQL_ATTR_ROWS_FETCHED_PTR, &numRowsFetched_, 0);
-
         res = do_fetch(0, number);
     }
     else // Use multiple calls to SQLFetch().
@@ -283,7 +305,6 @@ odbc_statement_backend::fetch(int number)
             {
                 intos_[j]->rebind_row(row);
             }
-
             res = do_fetch(row, row + 1);
             if (res != ef_success)
                 break;
@@ -373,6 +394,11 @@ void odbc_statement_backend::describe_column(int colNum, data_type & type,
         break;
     case SQL_BIGINT:
         type = dt_long_long;
+        break;
+    case SQL_BINARY:
+    case SQL_VARBINARY:
+    case SQL_LONGVARBINARY:
+        type = dt_binary;
         break;
     case SQL_CHAR:
     case SQL_VARCHAR:
